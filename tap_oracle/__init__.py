@@ -111,25 +111,25 @@ def schema_for_column(c, pks_for_table, use_singer_decimal):
       result.description = 'date'
       result.format = 'date-time'
       return result
-   
+
    elif data_type.startswith("timestamp"):
       result.type = nullable_column(c.column_name, 'string', pks_for_table)
       result.description = 'timestamp'
       result.format = 'date-time'
       return result
-   
+
    elif data_type == 'clob':
       result.type = nullable_column(c.column_name, 'string', pks_for_table)
-      result.maxLength = 4294967295 #Technically 4GB -1 https://docs.oracle.com/cd/E18283_01/server.112/e17110/limits001.htm 
+      result.maxLength = 4294967295 #Technically 4GB -1 https://docs.oracle.com/cd/E18283_01/server.112/e17110/limits001.htm
       result.description = 'clob'
       return result
-   
+
    elif data_type == 'nclob':
       result.type = nullable_column(c.column_name, 'string', pks_for_table)
-      result.maxLength = 4294967295 #Technically 4GB -1 https://docs.oracle.com/cd/E18283_01/server.112/e17110/limits001.htm 
+      result.maxLength = 4294967295 #Technically 4GB -1 https://docs.oracle.com/cd/E18283_01/server.112/e17110/limits001.htm
       result.description = 'nclob'
       return result
-   
+
    elif data_type == 'blob':
       result.type = nullable_column(c.column_name, 'string', pks_for_table)
       result.maxLength = 4294967295 #https://docs.oracle.com/cd/E18283_01/server.112/e17110/limits001.htm
@@ -184,7 +184,7 @@ def filter_sys_or_not(filter_schemas):
     if ('SYS' in filter_schemas): filter = "1=1"
     return filter
 
-    
+
 
 def filter_schemas_sql_clause(sql, binds_sql, owner_schema=None):
    if binds_sql:
@@ -196,7 +196,7 @@ def filter_schemas_sql_clause(sql, binds_sql, owner_schema=None):
    else:
       return sql
 
-def produce_row_counts(conn, filter_schemas):
+def produce_row_counts(conn, filter_schemas, lowercase = False):
    LOGGER.info("fetching row counts")
    cur = conn.cursor()
    row_counts = {}
@@ -204,7 +204,7 @@ def produce_row_counts(conn, filter_schemas):
 
    binds_sql = [":{}".format(b) for b in range(len(filter_schemas))]
    sql = filter_schemas_sql_clause(f"""
-   SELECT table_name, num_rows
+   SELECT {'lower(table_name)' if lowercase else 'table_name'} as table_name, {'lower(num_rows)' if lowercase else 'num_rows'} as num_rows
    FROM all_tables
    WHERE {filter}""", binds_sql)
 
@@ -289,7 +289,7 @@ def produce_column_metadata(connection, database_name, table_info, table_schema,
 
    return mdata
 
-def discover_columns(connection, table_info, filter_schemas, filter_tables, use_singer_decimal):
+def discover_columns(connection, table_info, filter_schemas, filter_tables, use_singer_decimal, lowercase = False):
    cur = connection.cursor()
    binds_sql = [":{}".format(b) for b in range(len(filter_schemas))]
    filter = filter_sys_or_not(filter_schemas)
@@ -302,17 +302,15 @@ def discover_columns(connection, table_info, filter_schemas, filter_tables, use_
       table_filter = """owner||'-'||table_name IN ({})""".format(','.join(f"'{t.rstrip('.*')}'" for t in filter_tables))
       filter = f"{table_filter} AND {filter}"
 
-   if binds_sql:
+   if lowercase:
       sql = f"""
-      SELECT OWNER,
-             TABLE_NAME, COLUMN_NAME,
+      SELECT lower(OWNER) as OWNER,
+             lower(TABLE_NAME) as TABLE_NAME,
+             lower(COLUMN_NAME) as COLUMN_NAME,
              DATA_TYPE, DATA_LENGTH,
              CHAR_LENGTH, CHAR_USED,
              DATA_PRECISION, DATA_SCALE
-        FROM all_tab_columns
-       WHERE {filter} AND owner IN ({{}})
-       ORDER BY owner, table_name, column_id
-      """.format(",".join(binds_sql))
+      """
    else:
       sql = f"""
       SELECT OWNER,
@@ -320,7 +318,15 @@ def discover_columns(connection, table_info, filter_schemas, filter_tables, use_
              DATA_TYPE, DATA_LENGTH,
              CHAR_LENGTH, CHAR_USED,
              DATA_PRECISION, DATA_SCALE
-        FROM all_tab_columns
+      """
+
+   if binds_sql:
+      sql += f"""FROM all_tab_columns
+       WHERE {filter} AND owner IN ({{}})
+       ORDER BY owner, table_name, column_id
+      """.format(",".join(binds_sql))
+   else:
+      sql = f"""FROM all_tab_columns
        WHERE {filter}
        ORDER BY owner, table_name, column_id
       """
@@ -370,23 +376,28 @@ def discover_columns(connection, table_info, filter_schemas, filter_tables, use_
 def dump_catalog(catalog):
    catalog.dump()
 
-def do_discovery(conn_config, filter_schemas, filter_tables, use_singer_decimal):
+def do_discovery(conn_config, filter_schemas, filter_tables = None, use_singer_decimal = None, lowercase = False):
    LOGGER.info("starting discovery")
 
    connection = orc_db.open_connection(conn_config)
    cur = connection.cursor()
 
-   row_counts = produce_row_counts(connection, filter_schemas)
+   row_counts = produce_row_counts(connection, filter_schemas, lowercase = lowercase)
    table_info = {}
 
    binds_sql = [":{}".format(b) for b in range(len(filter_schemas))]
    filter = filter_sys_or_not(filter_schemas)
 
-
-   sql  = filter_schemas_sql_clause(f"""
-   SELECT owner, table_name
-   FROM all_tables
-   WHERE {filter}""", binds_sql)
+   if lowercase:
+      sql  = filter_schemas_sql_clause(f"""
+      SELECT lower(owner) as owner, lower(table_name) as table_name
+      FROM all_tables
+      WHERE {filter}""", binds_sql)
+   else:
+      sql  = filter_schemas_sql_clause(f"""
+      SELECT owner, table_name
+      FROM all_tables
+      WHERE {filter}""", binds_sql)
 
    if filter_tables:
       # Restrict tables to tables in _SELECT environment variable
@@ -400,18 +411,22 @@ def do_discovery(conn_config, filter_schemas, filter_tables, use_singer_decimal)
 
       if schema not in table_info:
          table_info[schema] = {}
-
       is_view = False
       table_info[schema][table] = {
          'row_count': row_counts[table],
          'is_view': is_view
       }
 
-
-   sql = filter_schemas_sql_clause(f"""
-   SELECT owner, view_name
-   FROM sys.all_views
-   WHERE {filter}""", binds_sql)
+   if lowercase:
+      sql = filter_schemas_sql_clause(f"""
+      SELECT lower(owner) as owner, lower(view_name) as view_name
+      FROM sys.all_views
+      WHERE {filter}""", binds_sql)
+   else:
+      sql = filter_schemas_sql_clause(f"""
+      SELECT owner, view_name
+      FROM sys.all_views
+      WHERE {filter}""", binds_sql)
 
    if filter_tables:
       # Restrict views to views in _SELECT environment variable
@@ -429,7 +444,7 @@ def do_discovery(conn_config, filter_schemas, filter_tables, use_singer_decimal)
         'is_view': True
      }
 
-   catalog = discover_columns(connection, table_info, filter_schemas, filter_tables, use_singer_decimal)
+   catalog = discover_columns(connection, table_info, filter_schemas, filter_tables, use_singer_decimal, lowercase = lowercase)
    dump_catalog(catalog)
    cur.close()
    connection.close()
@@ -597,6 +612,7 @@ def do_sync(conn_config, catalog, default_replication_method, state):
 
    if any_logical_streams(streams, default_replication_method):
       LOGGER.info("Use of log_miner requires fetching current scn...")
+      from .sync_strategies import DBPrivilegeError
       end_scn = log_miner.fetch_current_scn(conn_config)
       LOGGER.info("End SCN: %s ", end_scn)
    else:
@@ -637,6 +653,10 @@ def main_impl():
                   'common_sid': args.config.get('common_sid'),
                   'common_service_name': args.config.get('common_service_name')}
 
+   lowercase_schema = False
+   if args.config.get('lowercase'):
+      lowercase_schema = True
+
    if args.config.get('scn_window_size'):
       log_miner.SCN_WINDOW_SIZE=int(args.config['scn_window_size'])
    if args.config.get('logminer_call_timeout'):
@@ -670,7 +690,7 @@ def main_impl():
          if filter_tables[0] == "*.*":
             filter_tables = []
 
-      do_discovery(conn_config, filter_schemas, filter_tables, use_singer_decimal)
+      do_discovery(conn_config, filter_schemas, filter_tables, use_singer_decimal, lowercase = lowercase_schema)
 
    elif args.catalog:
       state = args.state
