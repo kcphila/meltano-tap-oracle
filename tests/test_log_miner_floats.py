@@ -10,6 +10,7 @@ import tap_oracle.sync_strategies.log_miner as log_miner
 import decimal
 import math
 import tap_oracle.sync_strategies.full_table as full_table
+import tests.utils
 
 LOGGER = get_logger()
 

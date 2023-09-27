@@ -9,6 +9,7 @@ from tests.utils import get_test_connection, get_test_conn_config, ensure_test_t
 import tap_oracle.sync_strategies.log_miner as log_miner
 import tap_oracle.sync_strategies.full_table as full_table
 import decimal
+import tests.utils
 
 LOGGER = get_logger()
 

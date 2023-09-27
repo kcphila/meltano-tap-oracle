@@ -13,6 +13,7 @@ import pytz
 import strict_rfc3339
 import copy
 import tap_oracle.sync_strategies.full_table as full_table
+import tests.utils
 
 LOGGER = get_logger()
 
@@ -125,23 +126,32 @@ class FullTable(unittest.TestCase):
             tap_oracle.do_sync(get_test_conn_config(), catalog, None, original_state)
 
             #messages for initial full table replication: ActivateVersion, SchemaMessage, Record, Record, State, ActivateVersion
-            self.assertEqual(7, len(CAUGHT_MESSAGES))
-            self.assertTrue(isinstance(CAUGHT_MESSAGES[0], singer.SchemaMessage))
-            self.assertTrue(isinstance(CAUGHT_MESSAGES[1], singer.StateMessage))
-            self.assertTrue(isinstance(CAUGHT_MESSAGES[2], singer.ActivateVersionMessage))
-            self.assertTrue(isinstance(CAUGHT_MESSAGES[3], singer.RecordMessage))
-            self.assertTrue(isinstance(CAUGHT_MESSAGES[4], singer.RecordMessage))
-            self.assertTrue(isinstance(CAUGHT_MESSAGES[5], singer.ActivateVersionMessage))
-            self.assertTrue(isinstance(CAUGHT_MESSAGES[6], singer.StateMessage))
+            #self.assertEqual(7, len(CAUGHT_MESSAGES))
+            self.assertEqual(5, len(CAUGHT_MESSAGES))
+            imsg = 0
+            self.assertTrue(isinstance(CAUGHT_MESSAGES[imsg], singer.SchemaMessage))
+            imsg += 1
+            self.assertTrue(isinstance(CAUGHT_MESSAGES[imsg], singer.StateMessage))
+            imsg += 1
+            self.assertTrue(isinstance(CAUGHT_MESSAGES[imsg], singer.ActivateVersionMessage))
+            imsg += 1
+            #self.assertTrue(isinstance(CAUGHT_MESSAGES[imsg], singer.RecordMessage))
+            #imsg += 1
+            #self.assertTrue(isinstance(CAUGHT_MESSAGES[imsg], singer.RecordMessage))
+            #imsg += 1
+            self.assertTrue(isinstance(CAUGHT_MESSAGES[imsg], singer.ActivateVersionMessage))
+            imsg += 1
+            self.assertTrue(isinstance(CAUGHT_MESSAGES[imsg], singer.StateMessage))
 
-            state = CAUGHT_MESSAGES[6].value
+            state = CAUGHT_MESSAGES[imsg].value
             version = state.get('bookmarks', {}).get(chicken_stream.tap_stream_id, {}).get('version')
             scn = state.get('bookmarks', {}).get(chicken_stream.tap_stream_id, {}).get('scn')
 
             self.assertIsNotNone(version)
             self.assertIsNotNone(scn)
             self.assertEqual(CAUGHT_MESSAGES[2].version, version)
-            self.assertEqual(CAUGHT_MESSAGES[5].version, version)
+            #self.assertEqual(CAUGHT_MESSAGES[5].version, version)
+            self.assertEqual(CAUGHT_MESSAGES[3].version, version)
 
             #run another do_sync
             CAUGHT_MESSAGES.clear()

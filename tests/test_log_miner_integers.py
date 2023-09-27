@@ -8,6 +8,7 @@ from singer import get_logger, metadata, write_bookmark
 from tests.utils import get_test_connection, get_test_conn_config, ensure_test_table, select_all_of_stream, set_replication_method_for_stream, crud_up_log_miner_fixtures, verify_crud_messages
 import tap_oracle.sync_strategies.log_miner as log_miner
 import tap_oracle.sync_strategies.full_table as full_table
+import tests.utils
 
 LOGGER = get_logger()
 

@@ -12,6 +12,7 @@ import math
 import pytz
 import strict_rfc3339
 import tap_oracle.sync_strategies.full_table as full_table
+import tests.utils
 
 LOGGER = get_logger()
 

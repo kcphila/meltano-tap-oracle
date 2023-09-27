@@ -7,6 +7,7 @@ import tap_oracle.sync_strategies.full_table as full_table
 import pdb
 import singer
 from singer import get_logger, metadata, write_bookmark
+import tests.utils
 try:
     from tests.utils import get_test_connection, ensure_test_table, select_all_of_stream, set_replication_method_for_stream, insert_record, get_test_conn_config
 except ImportError:
@@ -85,7 +86,7 @@ class LogicalInterruption(unittest.TestCase):
             insert_record(cur, 'COW', cow_rec)
 
             cow_rec = {'name' : 'smelly', 'colour' : 'brow'}
-            insert_record(cur, 'COW', cow_rec)
+            insert_record(cur, 'SKUNK', cow_rec)
 
             cow_rec = {'name' : 'pooper', 'colour' : 'green'}
             insert_record(cur, 'COW', cow_rec)
@@ -93,6 +94,7 @@ class LogicalInterruption(unittest.TestCase):
         state = {}
         #the initial phase of cows logical replication will be a full table.
         #it will sync the first record and then blow up on the 2nd record
+        blew_up_on_cow = False
         try:
             tap_oracle.do_sync(get_test_conn_config(), catalog, None, state)
         except Exception as ex:
@@ -106,38 +108,38 @@ class LogicalInterruption(unittest.TestCase):
         self.assertTrue(isinstance(CAUGHT_MESSAGES[0], singer.SchemaMessage))
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[1], singer.StateMessage))
-        self.assertEqual(CAUGHT_MESSAGES[1].value['currently_syncing'], 'ROOT-COW')
-        self.assertIsNotNone(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW']['version'])
-        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW']['last_replication_method'],
+        self.assertEqual(CAUGHT_MESSAGES[1].value['currently_syncing'], f'{tests.utils.ORACLE_USER}-COW')
+        self.assertIsNotNone(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['version'])
+        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['last_replication_method'],
                          'LOG_BASED')
 
-        self.assertIsNone(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN'))
-        self.assertIsNotNone(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW'].get('scn'))
-        end_scn = CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW'].get('scn')
-        first_version = CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW'].get('version')
+        self.assertIsNone(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN'))
+        self.assertIsNotNone(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('scn'))
+        end_scn = CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('scn')
+        first_version = CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('version')
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[2], singer.ActivateVersionMessage))
         self.assertEqual(CAUGHT_MESSAGES[2].version, first_version)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[3], singer.RecordMessage))
         self.assertEqual(CAUGHT_MESSAGES[3].record, {'NAME': 'betty', 'ID': 1, 'COLOUR': 'blue'})
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[3].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[3].stream)
         self.assertEqual(first_version, CAUGHT_MESSAGES[3].version)
 
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[4], singer.StateMessage))
         #ORA_ROWSCN is set while we are processing the full table replication
-        self.assertIsNotNone(CAUGHT_MESSAGES[4].value['bookmarks']['ROOT-COW']['ORA_ROWSCN'])
-        self.assertEqual(CAUGHT_MESSAGES[4].value['bookmarks']['ROOT-COW']['scn'], end_scn)
-        self.assertEqual(first_version, CAUGHT_MESSAGES[4].value['bookmarks']['ROOT-COW']['version'])
+        self.assertIsNotNone(CAUGHT_MESSAGES[4].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['ORA_ROWSCN'])
+        self.assertEqual(CAUGHT_MESSAGES[4].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['scn'], end_scn)
+        self.assertEqual(first_version, CAUGHT_MESSAGES[4].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['version'])
 
         self.assertEqual(CAUGHT_MESSAGES[5].record['NAME'], 'smelly')
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[5].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[5].stream)
         self.assertEqual(first_version, CAUGHT_MESSAGES[5].version)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[6], singer.StateMessage))
-        self.assertEqual(first_version, CAUGHT_MESSAGES[6].value['bookmarks']['ROOT-COW']['version'])
-        last_ora_rowscn = CAUGHT_MESSAGES[6].value['bookmarks']['ROOT-COW']['ORA_ROWSCN']
+        self.assertEqual(first_version, CAUGHT_MESSAGES[6].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['version'])
+        last_ora_rowscn = CAUGHT_MESSAGES[6].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['ORA_ROWSCN']
         old_state = CAUGHT_MESSAGES[6].value
 
 
@@ -154,36 +156,36 @@ class LogicalInterruption(unittest.TestCase):
         self.assertTrue(isinstance(CAUGHT_MESSAGES[0], singer.SchemaMessage))
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[1], singer.StateMessage))
-        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN'), last_ora_rowscn)
-        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW'].get('scn'), end_scn)
-        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW'].get('version'), first_version)
+        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN'), last_ora_rowscn)
+        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('scn'), end_scn)
+        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('version'), first_version)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[2], singer.RecordMessage))
         self.assertEqual(CAUGHT_MESSAGES[2].record, {'COLOUR': 'brow', 'ID': 2, 'NAME': 'smelly'})
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[2].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[2].stream)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[3], singer.StateMessage))
-        self.assertTrue(CAUGHT_MESSAGES[3].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN'), last_ora_rowscn)
-        self.assertEqual(CAUGHT_MESSAGES[3].value['bookmarks']['ROOT-COW'].get('scn'), end_scn)
-        self.assertEqual(CAUGHT_MESSAGES[3].value['bookmarks']['ROOT-COW'].get('version'), first_version)
+        self.assertTrue(CAUGHT_MESSAGES[3].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN'), last_ora_rowscn)
+        self.assertEqual(CAUGHT_MESSAGES[3].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('scn'), end_scn)
+        self.assertEqual(CAUGHT_MESSAGES[3].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('version'), first_version)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[4], singer.RecordMessage))
         self.assertEqual(CAUGHT_MESSAGES[4].record['NAME'], 'pooper')
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[4].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[4].stream)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[5], singer.StateMessage))
-        self.assertTrue(CAUGHT_MESSAGES[5].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN') > last_ora_rowscn)
-        self.assertEqual(CAUGHT_MESSAGES[5].value['bookmarks']['ROOT-COW'].get('scn'), end_scn)
-        self.assertEqual(CAUGHT_MESSAGES[5].value['bookmarks']['ROOT-COW'].get('version'), first_version)
+        self.assertTrue(CAUGHT_MESSAGES[5].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN') > last_ora_rowscn)
+        self.assertEqual(CAUGHT_MESSAGES[5].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('scn'), end_scn)
+        self.assertEqual(CAUGHT_MESSAGES[5].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('version'), first_version)
 
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[6], singer.ActivateVersionMessage))
         self.assertEqual(CAUGHT_MESSAGES[6].version, first_version)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[7], singer.StateMessage))
-        self.assertIsNone(CAUGHT_MESSAGES[7].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN'))
-        self.assertEqual(CAUGHT_MESSAGES[7].value['bookmarks']['ROOT-COW'].get('scn'), end_scn)
-        self.assertEqual(CAUGHT_MESSAGES[7].value['bookmarks']['ROOT-COW'].get('version'), first_version)
+        self.assertIsNone(CAUGHT_MESSAGES[7].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN'))
+        self.assertEqual(CAUGHT_MESSAGES[7].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('scn'), end_scn)
+        self.assertEqual(CAUGHT_MESSAGES[7].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('version'), first_version)
 
 class FullTableInterruption(unittest.TestCase):
     maxDiff = None
@@ -228,6 +230,7 @@ class FullTableInterruption(unittest.TestCase):
 
             cow_rec = {'name' : 'betty', 'colour' : 'blue'}
             insert_record(cur, 'COW', cow_rec)
+
             cow_rec = {'name' : 'smelly', 'colour' : 'brow'}
             insert_record(cur, 'COW', cow_rec)
 
@@ -239,6 +242,7 @@ class FullTableInterruption(unittest.TestCase):
 
         state = {}
         #this will sync the CHICKEN but then blow up on the COW
+        blew_up_on_cow = False
         try:
             tap_oracle.do_sync(get_test_conn_config(), catalog, None, state)
         except Exception as ex:
@@ -252,17 +256,17 @@ class FullTableInterruption(unittest.TestCase):
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[0], singer.SchemaMessage))
         self.assertTrue(isinstance(CAUGHT_MESSAGES[1], singer.StateMessage))
-        self.assertIsNone(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-CHICKEN'].get('ORA_ROWSCN'))
+        self.assertIsNone(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-CHICKEN'].get('ORA_ROWSCN'))
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[2], singer.ActivateVersionMessage))
         new_version = CAUGHT_MESSAGES[2].version
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[3], singer.RecordMessage))
-        self.assertEqual('ROOT-CHICKEN', CAUGHT_MESSAGES[3].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-CHICKEN', CAUGHT_MESSAGES[3].stream)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[4], singer.StateMessage))
         #ORA_ROWSCN is set while we are processing the full table replication
-        self.assertIsNotNone(CAUGHT_MESSAGES[4].value['bookmarks']['ROOT-CHICKEN']['ORA_ROWSCN'])
+        self.assertIsNotNone(CAUGHT_MESSAGES[4].value['bookmarks'][f'{tests.utils.ORACLE_USER}-CHICKEN']['ORA_ROWSCN'])
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[5], singer.ActivateVersionMessage))
         self.assertEqual(CAUGHT_MESSAGES[5].version, new_version)
@@ -270,36 +274,36 @@ class FullTableInterruption(unittest.TestCase):
         self.assertTrue(isinstance(CAUGHT_MESSAGES[6], singer.StateMessage))
         self.assertEqual(None, singer.get_currently_syncing( CAUGHT_MESSAGES[6].value))
         #ORA_ROWSCN is cleared at the end of the full table replication
-        self.assertIsNone(CAUGHT_MESSAGES[6].value['bookmarks']['ROOT-CHICKEN']['ORA_ROWSCN'])
+        self.assertIsNone(CAUGHT_MESSAGES[6].value['bookmarks'][f'{tests.utils.ORACLE_USER}-CHICKEN']['ORA_ROWSCN'])
 
 
         #cow messages
         self.assertTrue(isinstance(CAUGHT_MESSAGES[7], singer.SchemaMessage))
 
-        self.assertEqual("ROOT-COW", CAUGHT_MESSAGES[7].stream)
+        self.assertEqual(f"{tests.utils.ORACLE_USER}-COW", CAUGHT_MESSAGES[7].stream)
         self.assertTrue(isinstance(CAUGHT_MESSAGES[8], singer.StateMessage))
-        self.assertIsNone(CAUGHT_MESSAGES[8].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN'))
-        self.assertEqual("ROOT-COW", CAUGHT_MESSAGES[8].value['currently_syncing'])
+        self.assertIsNone(CAUGHT_MESSAGES[8].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN'))
+        self.assertEqual(f"{tests.utils.ORACLE_USER}-COW", CAUGHT_MESSAGES[8].value['currently_syncing'])
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[9], singer.ActivateVersionMessage))
         cow_version = CAUGHT_MESSAGES[9].version
         self.assertTrue(isinstance(CAUGHT_MESSAGES[10], singer.RecordMessage))
 
         self.assertEqual(CAUGHT_MESSAGES[10].record['NAME'], 'betty')
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[10].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[10].stream)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[11], singer.StateMessage))
         #ORA_ROWSCN is set while we are processing the full table replication
-        self.assertIsNotNone(CAUGHT_MESSAGES[11].value['bookmarks']['ROOT-COW']['ORA_ROWSCN'])
-        betty_ora_row_scn = CAUGHT_MESSAGES[11].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN')
+        self.assertIsNotNone(CAUGHT_MESSAGES[11].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['ORA_ROWSCN'])
+        betty_ora_row_scn = CAUGHT_MESSAGES[11].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN')
 
 
         self.assertEqual(CAUGHT_MESSAGES[12].record['NAME'], 'smelly')
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[12].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[12].stream)
 
         old_state = CAUGHT_MESSAGES[13].value
-        self.assertIsNotNone(CAUGHT_MESSAGES[13].value['bookmarks']['ROOT-COW']['ORA_ROWSCN'])
-        smelly_ora_row_scn = CAUGHT_MESSAGES[13].value['bookmarks']['ROOT-COW'].get('ORA_ROWSCN')
+        self.assertIsNotNone(CAUGHT_MESSAGES[13].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['ORA_ROWSCN'])
+        smelly_ora_row_scn = CAUGHT_MESSAGES[13].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW'].get('ORA_ROWSCN')
 
         self.assertGreater(smelly_ora_row_scn, betty_ora_row_scn)
 
@@ -315,28 +319,28 @@ class FullTableInterruption(unittest.TestCase):
         self.assertTrue(isinstance(CAUGHT_MESSAGES[1], singer.StateMessage))
 
         # because we were interrupted, we do not switch versions
-        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW']['version'], cow_version)
-        self.assertIsNotNone(CAUGHT_MESSAGES[1].value['bookmarks']['ROOT-COW']['ORA_ROWSCN'])
-        self.assertEqual("ROOT-COW", singer.get_currently_syncing(CAUGHT_MESSAGES[1].value))
+        self.assertEqual(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['version'], cow_version)
+        self.assertIsNotNone(CAUGHT_MESSAGES[1].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['ORA_ROWSCN'])
+        self.assertEqual(f"{tests.utils.ORACLE_USER}-COW", singer.get_currently_syncing(CAUGHT_MESSAGES[1].value))
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[2], singer.RecordMessage))
         self.assertEqual(CAUGHT_MESSAGES[2].record['NAME'], 'smelly')
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[2].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[2].stream)
 
 
         #after record: activate version, state with no ORA_ROWSCN or currently syncing
         self.assertTrue(isinstance(CAUGHT_MESSAGES[3], singer.StateMessage))
         #we still have an ORA_ROWSCN for COW because are not yet done with the COW table
-        self.assertIsNotNone(CAUGHT_MESSAGES[3].value['bookmarks']['ROOT-COW']['ORA_ROWSCN'])
-        self.assertEqual(singer.get_currently_syncing( CAUGHT_MESSAGES[3].value), 'ROOT-COW')
+        self.assertIsNotNone(CAUGHT_MESSAGES[3].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['ORA_ROWSCN'])
+        self.assertEqual(singer.get_currently_syncing( CAUGHT_MESSAGES[3].value), f'{tests.utils.ORACLE_USER}-COW')
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[4], singer.RecordMessage))
         self.assertEqual(CAUGHT_MESSAGES[4].record['NAME'], 'pooper')
-        self.assertEqual('ROOT-COW', CAUGHT_MESSAGES[4].stream)
+        self.assertEqual(f'{tests.utils.ORACLE_USER}-COW', CAUGHT_MESSAGES[4].stream)
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[5], singer.StateMessage))
-        self.assertIsNotNone(CAUGHT_MESSAGES[5].value['bookmarks']['ROOT-COW']['ORA_ROWSCN'])
-        self.assertEqual(singer.get_currently_syncing( CAUGHT_MESSAGES[5].value), 'ROOT-COW')
+        self.assertIsNotNone(CAUGHT_MESSAGES[5].value['bookmarks'][f'{tests.utils.ORACLE_USER}-COW']['ORA_ROWSCN'])
+        self.assertEqual(singer.get_currently_syncing( CAUGHT_MESSAGES[5].value), f'{tests.utils.ORACLE_USER}-COW')
 
 
         #ORA_ROWSCN is cleared because we are finished the full table replication
@@ -345,7 +349,7 @@ class FullTableInterruption(unittest.TestCase):
 
         self.assertTrue(isinstance(CAUGHT_MESSAGES[7], singer.StateMessage))
         self.assertIsNone(singer.get_currently_syncing( CAUGHT_MESSAGES[7].value))
-        self.assertIsNone(CAUGHT_MESSAGES[7].value['bookmarks']['ROOT-CHICKEN']['ORA_ROWSCN'])
+        self.assertIsNone(CAUGHT_MESSAGES[7].value['bookmarks'][f'{tests.utils.ORACLE_USER}-CHICKEN']['ORA_ROWSCN'])
         self.assertIsNone(singer.get_currently_syncing( CAUGHT_MESSAGES[7].value))
 
 
